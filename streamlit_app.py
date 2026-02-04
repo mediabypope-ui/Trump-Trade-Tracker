@@ -31,9 +31,20 @@ selected_ticker = st.sidebar.selectbox("Choose a Stock to View", list(INVESTMENT
 chart_period = st.sidebar.radio("Chart Timeframe", ["1 Month", "Year-To-Date (YTD)"])
 
 # --- DATA FETCHING ---
-@st.cache_data(ttl=3600)  # Refresh every hour
+# We use cache_resource for objects that are hard to serialize
+@st.cache_resource(ttl=3600) 
 def get_stock_data(ticker):
     stock = yf.Ticker(ticker)
+    # Map selection to yfinance periods
+    period_map = {"1 Month": "1mo", "Year-To-Date (YTD)": "ytd", "1y": "1y"}
+    hist = stock.history(period=period_map.get(time_frame, "ytd"))
+    
+    # Extract only the numbers we need to avoid the "FastInfo" error
+    info_dict = {
+        'last_price': stock.fast_info['last_price'],
+        'prev_close': hist['Close'].iloc[-2] if len(hist) > 1 else stock.fast_info['last_price']
+    }
+    return hist, info_dict
     # Map selection to yfinance periods
     period_map = {"1 Month": "1mo", "Year-To-Date (YTD)": "ytd"}
     hist = stock.history(period=period_map[chart_period])
