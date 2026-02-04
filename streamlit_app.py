@@ -2,94 +2,70 @@ import streamlit as st
 import yfinance as yf
 import plotly.graph_objects as go
 import pandas as pd
-from datetime import datetime
 
-# --- APP CONFIG ---
-st.set_page_config(page_title="Trump Trade Tracker 2026", layout="wide", page_icon="🦅")
+# --- CONFIG ---
+st.set_page_config(page_title="Investment Tracker 2026", layout="wide", page_icon="📈")
 
-# --- CUSTOM STYLING ---
-st.markdown("""
-    <style>
-    .main { background-color: #f5f7f9; }
-    .stMetric { background-color: #ffffff; padding: 15px; border-radius: 10px; border: 1px solid #e0e0e0; }
-    </style>
-    """, unsafe_allow_html=True)
-
-# --- TRACKED INVESTMENTS DATA ---
-# Update this list whenever they make a new move!
+# --- THE WATCHLIST ---
 INVESTMENTS = {
-    'UMAC': {'name': 'Unusual Machines', 'type': 'Defense/Drones', 'date': '2024-02-14', 'note': 'Don Jr. Advisory Board'},
-    'DOMI': {'name': 'Dominari Holdings', 'type': 'AI Energy', 'date': '2025-11-01', 'note': 'Strategic AI Pivot'},
-    'PSQH': {'name': 'PublicSquare', 'type': 'Marketplace', 'date': '2023-07-20', 'note': 'Parallel Economy Play'},
-    'GEV': {'name': 'GE Vernova', 'type': 'Energy Grid', 'date': '2026-01-20', 'note': 'Natural Gas Expansion Beneficiary'},
-    'MP': {'name': 'MP Materials', 'type': 'Rare Earths', 'date': '2025-05-10', 'note': 'Critical Mineral Security'}
+    'UMAC': {'name': 'Unusual Machines', 'note': 'Don Jr. Advisory Board'},
+    'DOMI': {'name': 'Dominari Holdings', 'note': 'AI Energy Pivot'},
+    'PSQH': {'name': 'PublicSquare', 'note': 'Parallel Economy Marketplace'},
+    'GEV': {'name': 'GE Vernova', 'note': 'Natural Gas Infrastructure'},
+    'DJT': {'name': 'Trump Media', 'note': 'Truth Social / Crypto Expansion'}
 }
 
-# --- SIDEBAR ---
-st.sidebar.title("🦅 Tracker Settings")
-selected_ticker = st.sidebar.selectbox("Choose a Stock to View", list(INVESTMENTS.keys()))
-chart_period = st.sidebar.radio("Chart Timeframe", ["1 Month", "Year-To-Date (YTD)"])
+# --- DATA FETCHING (Fixed Caching) ---
+# We use cache_resource for complex objects like Tickers
+@st.cache_resource(ttl=3600)
+def get_ticker_object(ticker_symbol):
+    return yf.Ticker(ticker_symbol)
 
-# --- DATA FETCHING ---
-# We use cache_resource for objects that are hard to serialize
-@st.cache_resource(ttl=3600) 
-def get_stock_data(ticker):
-    stock = yf.Ticker(ticker)
-    # Map selection to yfinance periods
-    period_map = {"1 Month": "1mo", "Year-To-Date (YTD)": "ytd", "1y": "1y"}
-    hist = stock.history(period=period_map.get(time_frame, "ytd"))
-    
-    # Extract only the numbers we need to avoid the "FastInfo" error
-    info_dict = {
-        'last_price': stock.fast_info['last_price'],
-        'prev_close': hist['Close'].iloc[-2] if len(hist) > 1 else stock.fast_info['last_price']
-    }
-    return hist, info_dict
-    # Map selection to yfinance periods
-    period_map = {"1 Month": "1mo", "Year-To-Date (YTD)": "ytd"}
-    hist = stock.history(period=period_map[chart_period])
-    info = stock.fast_info
-    return hist, info
+st.title("🦅 Live Portfolio Dashboard")
 
+# --- SIDEBAR CONTROLS ---
+selected_ticker = st.sidebar.selectbox("Select Investment", list(INVESTMENTS.keys()))
+# We define time_frame here so it's available for the rest of the app
+time_frame = st.sidebar.radio("Timeframe", ["1mo", "ytd", "1y"])
+
+# --- PROCESS DATA ---
 try:
-    hist, info = get_stock_data(selected_ticker)
-    curr_price = info['last_price']
-    prev_close = hist['Close'].iloc[-2] if len(hist) > 1 else curr_price
-    delta = ((curr_price - prev_close) / prev_close) * 100
+    stock = get_ticker_object(selected_ticker)
+    hist = stock.history(period=time_frame)
+    
+    # Simple dictionary for the price to avoid serialization errors
+    curr_price = stock.fast_info['last_price']
 
-    # --- HEADER ---
-    st.title(f"{INVESTMENTS[selected_ticker]['name']} ({selected_ticker})")
-    st.write(f"**Strategic Note:** {INVESTMENTS[selected_ticker]['note']}")
+    # --- DISPLAY METRICS ---
+    st.header(f"{INVESTMENTS[selected_ticker]['name']} ({selected_ticker})")
+    c1, c2 = st.columns([2, 1])
 
-    # --- TOP METRICS ---
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Current Price", f"${curr_price:.2f}", f"{delta:.2f}%")
-    col2.metric("Investment Date", INVESTMENTS[selected_ticker]['date'])
-    col3.metric("Sector", INVESTMENTS[selected_ticker]['type'])
+    with c1:
+        fig = go.Figure(data=[go.Candlestick(
+            x=hist.index, 
+            open=hist['Open'], 
+            high=hist['High'], 
+            low=hist['Low'], 
+            close=hist['Close']
+        )])
+        fig.update_layout(title=f"{selected_ticker} {time_frame.upper()} Chart", template="plotly_dark")
+        st.plotly_chart(fig, use_container_width=True)
 
-    # --- CHARTING ---
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(
-        x=hist.index, 
-        y=hist['Close'], 
-        mode='lines+markers',
-        name='Price',
-        line=dict(color='#cc0000', width=3),
-        fill='toself',
-        fillcolor='rgba(204, 0, 0, 0.1)'
-    ))
-    fig.update_layout(
-        title=f"{selected_ticker} {chart_period} Price Action",
-        template="plotly_white",
-        hovermode="x unified",
-        margin=dict(l=20, r=20, t=50, b=20)
-    )
-    st.plotly_chart(fig, use_container_width=True)
+    with c2:
+        st.metric("Current Price", f"${curr_price:.2f}")
+        st.write(f"**Strategic Goal:** {INVESTMENTS[selected_ticker]['note']}")
+        st.markdown(f"**[View on Yahoo Finance](https://finance.yahoo.com/quote/{selected_ticker})**")
 
-    # --- FOOTER LINKS ---
+    # --- NEWS FEED ---
     st.divider()
-    y_link = f"https://finance.yahoo.com/quote/{selected_ticker}"
-    st.markdown(f"🔗 [Open {selected_ticker} on Yahoo Finance]({y_link})")
+    st.subheader(f"📰 Latest News for {selected_ticker}")
+    news_list = stock.news
+    if news_list:
+        for article in news_list[:5]:
+            st.markdown(f"**[{article['title']}]({article['link']})**")
+            st.caption(f"Source: {article.get('publisher', 'Unknown')}")
+    else:
+        st.write("No recent headlines found.")
 
 except Exception as e:
-    st.error(f"Could not load data for {selected_ticker}. Error: {e}")
+    st.error(f"Error loading data for {selected_ticker}: {e}")
