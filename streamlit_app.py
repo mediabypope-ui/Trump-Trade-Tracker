@@ -4,68 +4,58 @@ import plotly.graph_objects as go
 import pandas as pd
 
 # --- CONFIG ---
-st.set_page_config(page_title="Investment Tracker 2026", layout="wide", page_icon="📈")
+st.set_page_config(page_title="Trump Trade Tracker", layout="wide", page_icon="🦅")
 
-# --- THE WATCHLIST ---
+# --- CUSTOM CSS FOR CENTERED TITLE ---
+st.markdown("""
+    <style>
+    .centered-title { text-align: center; font-size: 50px !important; font-weight: 800; color: #cc0000; margin-bottom: 30px; }
+    </style>
+    <h1 class="centered-title">Trump Trade Tracker</h1>
+    """, unsafe_allow_html=True)
+
+# --- DETAILED INVESTMENT DATA ---
+# Categories: 'Crypto', 'Energy', 'Tech', 'Real Estate'
 INVESTMENTS = {
-    'UMAC': {'name': 'Unusual Machines', 'note': 'Don Jr. Advisory Board'},
-    'DOMI': {'name': 'Dominari Holdings', 'note': 'AI Energy Pivot'},
-    'PSQH': {'name': 'PublicSquare', 'note': 'Parallel Economy Marketplace'},
-    'GEV': {'name': 'GE Vernova', 'note': 'Natural Gas Infrastructure'},
-    'DJT': {'name': 'Trump Media', 'note': 'Truth Social / Crypto Expansion'}
+    'Energy': {
+        'DOMI': {'name': 'Dominari Holdings', 'buy_date': '2025-11-01', 'shares': 500, 'buy_price': 4.50},
+        'GEV': {'name': 'GE Vernova', 'buy_date': '2026-01-20', 'shares': 100, 'buy_price': 175.20}
+    },
+    'Tech/Media': {
+        'DJT': {'name': 'Trump Media', 'buy_date': '2024-03-26', 'shares': 1000, 'buy_price': 35.00},
+        'UMAC': {'name': 'Unusual Machines', 'buy_date': '2024-02-14', 'shares': 250, 'buy_price': 2.10}
+    },
+    'Marketplace': {
+        'PSQH': {'name': 'PublicSquare', 'buy_date': '2023-07-20', 'shares': 300, 'buy_price': 5.40}
+    }
 }
 
-# --- DATA FETCHING (Fixed Caching) ---
-# We use cache_resource for complex objects like Tickers
-@st.cache_resource(ttl=3600)
-def get_ticker_object(ticker_symbol):
-    return yf.Ticker(ticker_symbol)
+# --- CHARTING FUNCTION ---
+def create_chart(ticker_symbol, timeframe):
+    stock = yf.Ticker(ticker_symbol)
+    hist = stock.history(period=timeframe)
+    fig = go.Figure(data=[go.Scatter(x=hist.index, y=hist['Close'], mode='lines', line=dict(color='#cc0000'))])
+    fig.update_layout(
+        height=250, margin=dict(l=0, r=0, t=30, b=0),
+        title=f"{ticker_symbol} ({timeframe.upper()})",
+        template="plotly_white",
+        xaxis_rangeslider_visible=False
+    )
+    return fig
 
-st.title("🦅 Live Portfolio Dashboard")
-
-# --- SIDEBAR CONTROLS ---
-selected_ticker = st.sidebar.selectbox("Select Investment", list(INVESTMENTS.keys()))
-# We define time_frame here so it's available for the rest of the app
-time_frame = st.sidebar.radio("Timeframe", ["1mo", "ytd", "1y"])
-
-# --- PROCESS DATA ---
-try:
-    stock = get_ticker_object(selected_ticker)
-    hist = stock.history(period=time_frame)
+# --- MAIN DASHBOARD LAYOUT ---
+for category, stocks in INVESTMENTS.items():
+    st.header(f"📂 Category: {category}")
+    cols = st.columns(3) # Creates a row of 3 columns
     
-    # Simple dictionary for the price to avoid serialization errors
-    curr_price = stock.fast_info['last_price']
-
-    # --- DISPLAY METRICS ---
-    st.header(f"{INVESTMENTS[selected_ticker]['name']} ({selected_ticker})")
-    c1, c2 = st.columns([2, 1])
-
-    with c1:
-        fig = go.Figure(data=[go.Candlestick(
-            x=hist.index, 
-            open=hist['Open'], 
-            high=hist['High'], 
-            low=hist['Low'], 
-            close=hist['Close']
-        )])
-        fig.update_layout(title=f"{selected_ticker} {time_frame.upper()} Chart", template="plotly_dark")
-        st.plotly_chart(fig, use_container_width=True)
-
-    with c2:
-        st.metric("Current Price", f"${curr_price:.2f}")
-        st.write(f"**Strategic Goal:** {INVESTMENTS[selected_ticker]['note']}")
-        st.markdown(f"**[View on Yahoo Finance](https://finance.yahoo.com/quote/{selected_ticker})**")
-
-    # --- NEWS FEED ---
+    for i, (ticker, details) in enumerate(stocks.items()):
+        with cols[i % 3]: # Places charts in rows of 3
+            # Timeframe Toggle inside the chart row
+            view = st.radio(f"Period ({ticker})", ["1mo", "ytd", "1y"], key=f"range_{ticker}", horizontal=True)
+            
+            # Display the Chart
+            st.plotly_chart(create_chart(ticker, view), use_container_width=True)
+            
+            # Display Purchase Data
+            st.info(f"**Purchased:** {details['buy_date']}\n\n**Price:** ${details['buy_price']} | **Shares:** {details['shares']}")
     st.divider()
-    st.subheader(f"📰 Latest News for {selected_ticker}")
-    news_list = stock.news
-    if news_list:
-        for article in news_list[:5]:
-            st.markdown(f"**[{article['title']}]({article['link']})**")
-            st.caption(f"Source: {article.get('publisher', 'Unknown')}")
-    else:
-        st.write("No recent headlines found.")
-
-except Exception as e:
-    st.error(f"Error loading data for {selected_ticker}: {e}")
